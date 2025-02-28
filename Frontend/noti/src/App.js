@@ -96,34 +96,64 @@ function App() {
   
   const subscribeUserToPush = async () => {
     try {
-      const registration = await registerServiceWorker();
-      if (!registration) {
-        showNotification('Service Worker registration failed', 'error');
+      let registration;
+      
+      // Check if service worker is already registered
+      if ('serviceWorker' in navigator) {
+        registration = await navigator.serviceWorker.ready;
+        console.log('Using existing service worker registration:', registration);
+      } else {
+        showNotification('Service Worker is not supported in this browser.', 'error');
         return;
       }
-
+  
+      // Check if already subscribed
+      const existingSubscription = await registration.pushManager.getSubscription();
+      if (existingSubscription) {
+        console.log('Already subscribed:', existingSubscription);
+        setIsSubscribed(true);
+        
+        // Send subscription to server
+        await axios.post(`${API_URL}/subscribe`, {
+          studentId,
+          subscription: existingSubscription
+        });
+        
+        showNotification('Subscription refreshed successfully!', 'success');
+        return;
+      }
+  
       // Get VAPID public key from server
       const response = await axios.get(`${API_URL}/vapidPublicKey`);
       const vapidPublicKey = response.data.publicKey;
+      
+      if (!vapidPublicKey) {
+        showNotification('Failed to get public key from server', 'error');
+        return;
+      }
+      
+      console.log('Received public key:', vapidPublicKey);
       const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
-
+  
       // Subscribe the user
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: convertedVapidKey
       });
-
+  
+      console.log('New subscription created:', subscription);
+  
       // Send subscription to server
       await axios.post(`${API_URL}/subscribe`, {
         studentId,
         subscription: subscription
       });
-
+  
       setIsSubscribed(true);
       showNotification('Notification subscription successful!', 'success');
     } catch (error) {
       console.error('Error subscribing to push notifications:', error);
-      showNotification('Failed to subscribe to notifications', 'error');
+      showNotification(`Failed to subscribe: ${error.message}`, 'error');
     }
   };
 
@@ -215,6 +245,27 @@ function App() {
     }
     return outputArray;
   }
+  const testNotification = () => {
+    if (!('Notification' in window)) {
+      alert('This browser does not support notifications');
+      return;
+    }
+    
+    Notification.requestPermission().then(permission => {
+      if (permission === 'granted') {
+        navigator.serviceWorker.ready.then(registration => {
+          registration.showNotification('Test Notification', {
+            body: 'This is a test notification',
+            icon: '/notification.png',
+            vibrate: [100, 50, 100],
+            requireInteraction: true
+          });
+        });
+      } else {
+        alert('Notification permission was denied');
+      }
+    });
+  };
 
   return (
     <div className="app-container">
@@ -231,6 +282,9 @@ function App() {
         </div>
       )}
 
+<button onClick={testNotification} className="btn-secondary">
+  Test Notification
+</button>
       <main className="app-main">
         {view === 'login' && (
           <div className="auth-container">
