@@ -32,26 +32,35 @@ app.get('/vapidPublicKey', (req, res) => {
     res.json({ publicKey: vapidKeys.publicKey });
 });
 
-// 🔹 Student Registration
 app.post('/register', async (req, res) => {
     const { studentId, password } = req.body;
-
-    if (!studentId || !password) return res.status(400).json({ error: "All fields are required" });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    try {
-        const newStudent = new Student({ studentId, password: hashedPassword });
-        await newStudent.save();
-        res.status(201).json({ message: "Student registered successfully" });
-    } catch (error) {
-        res.status(500).json({ error: "Error registering student" });
+  
+    if (!studentId || !password) {
+      return res.status(400).json({ error: "All fields are required" });
     }
-});
-
+  
+    const hashedPassword = await bcrypt.hash(password, 10);
+  
+    try {
+      // Ensure the studentId is unique
+      const existingStudent = await Student.findOne({ studentId });
+      if (existingStudent) {
+        return res.status(400).json({ error: "Student ID already exists" });
+      }
+  
+      const newStudent = new Student({ studentId, password: hashedPassword });
+      await newStudent.save();
+      res.status(201).json({ message: "Student registered successfully" });
+    } catch (error) {
+      console.log("Error registering student:", error);
+      res.status(500).json({ error: "Error registering student" });
+    }
+  });
+  
 // 🔹 Student Login
 app.post('/login', async (req, res) => {
-    const { studentId, password } = req.body;
+    try {
+        const { studentId, password } = req.body;
 
     const student = await Student.findOne({ studentId });
     if (!student) return res.status(401).json({ error: "Invalid credentials" });
@@ -61,6 +70,11 @@ app.post('/login', async (req, res) => {
 
     const token = jwt.sign({ studentId }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.json({ message: "Login successful", token });
+    } catch (error) {
+        console.log("errro",error)
+        res.status(500).json({ error: "Error login student" });
+    }
+    
 });
 
 // 🔹 Student Push Notification Subscription
