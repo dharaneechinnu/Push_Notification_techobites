@@ -11,7 +11,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [notification, setNotification] = useState(null);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  
+
   // Admin state
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [notificationTitle, setNotificationTitle] = useState('');
@@ -19,10 +19,9 @@ function App() {
   const [allStudents, setAllStudents] = useState([]);
 
   useEffect(() => {
-    // Check if user is logged in
     if (token) {
       setView('dashboard');
-      
+
       // Check if already subscribed to notifications
       if ('serviceWorker' in navigator && 'PushManager' in window) {
         navigator.serviceWorker.ready.then(registration => {
@@ -32,17 +31,44 @@ function App() {
         });
       }
     }
-    
+
     // Fetch students list (for admin panel)
     if (view === 'admin') {
       fetchStudents();
     }
   }, [token, view]);
 
+  useEffect(() => {
+    // Register the service worker only once
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then(registration => {
+          console.log('Service Worker registered:', registration);
+        })
+        .catch(error => {
+          console.error('Service Worker registration failed:', error);
+        });
+    }
+
+    // Request notification permission only once
+    requestNotificationPermission();
+  }, []);
+
+  const requestNotificationPermission = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log('Notification permission granted.');
+      } else {
+        console.log('Notification permission denied.');
+      }
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+    }
+  };
+
   const fetchStudents = async () => {
     try {
-      // Note: In a real app, you'd need an admin authentication route
-      // This is just a placeholder for demonstration
       const response = await axios.get(`${API_URL}/students`);
       setAllStudents(response.data);
     } catch (error) {
@@ -54,15 +80,20 @@ function App() {
     if ('serviceWorker' in navigator) {
       try {
         const registration = await navigator.serviceWorker.register('/service-worker.js');
+        console.log('Service Worker registered successfully:', registration);
         return registration;
       } catch (error) {
-        console.error('Service worker registration failed:', error);
+        console.error('Service worker registration failed with error:', error);
+        showNotification('Service Worker registration failed. Check the console for details.', 'error');
         return null;
       }
+    } else {
+      console.error('Service Worker not supported in this browser.');
+      showNotification('Service Worker is not supported in this browser.', 'error');
+      return null;
     }
-    return null;
   };
-
+  
   const subscribeUserToPush = async () => {
     try {
       const registration = await registerServiceWorker();
@@ -74,7 +105,6 @@ function App() {
       // Get VAPID public key from server
       const response = await axios.get(`${API_URL}/vapidPublicKey`);
       const vapidPublicKey = response.data.publicKey;
-
       const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
 
       // Subscribe the user
@@ -138,16 +168,22 @@ function App() {
     }
 
     try {
-      await axios.post(`${API_URL}/sendNotification`, {
+      const res = await axios.post(`${API_URL}/sendNotification`, {
         studentIds: selectedStudents,
         title: notificationTitle,
         message: notificationMessage
       });
-      showNotification('Notifications sent successfully!', 'success');
-      setNotificationTitle('');
-      setNotificationMessage('');
-      setSelectedStudents([]);
+
+      if (res.status === 200) {
+        showNotification('Notifications sent successfully!', 'success');
+        setNotificationTitle('');
+        setNotificationMessage('');
+        setSelectedStudents([]);
+      } else {
+        showNotification('Something went wrong. Please try again.', 'error');
+      }
     } catch (error) {
+      console.error(error);
       showNotification(error.response?.data?.error || 'Failed to send notifications', 'error');
     }
   };
@@ -165,16 +201,15 @@ function App() {
     }
   };
 
-  // Helper function to convert base64 to Uint8Array for VAPID key
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding)
       .replace(/-/g, '+')
       .replace(/_/g, '/');
-  
+
     const rawData = window.atob(base64);
     const outputArray = new Uint8Array(rawData.length);
-  
+
     for (let i = 0; i < rawData.length; ++i) {
       outputArray[i] = rawData.charCodeAt(i);
     }
