@@ -6,6 +6,8 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const webPush = require('web-push');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const port = 3500;
@@ -23,60 +25,77 @@ mongoose.connect(process.env.MONGODB_URL)
 const Student = require('./Model/Student');
 const Subscription = require('./Model/subcription');
 
-// Set VAPID Keys
+// VAPID Keys for Web Push Notifications - Use persistent keys
+let vapidKeys;
+const vapidKeysPath = path.join(__dirname, 'vapid-keys.json');
+
+// Try to load existing VAPID keys
+try {
+    if (fs.existsSync(vapidKeysPath)) {
+        // Load existing keys
+        const vapidKeysData = fs.readFileSync(vapidKeysPath);
+        vapidKeys = JSON.parse(vapidKeysData);
+        console.log("✅ VAPID keys loaded from file",vapidKeys);
+    } else {
+        // Generate new keys and save them
+        vapidKeys = webPush.generateVAPIDKeys();
+        fs.writeFileSync(vapidKeysPath, JSON.stringify(vapidKeys));
+        console.log("✅ New VAPID keys generated and saved");
+    }
+} catch (error) {
+    console.error("❌ Error managing VAPID keys:", error);
+    vapidKeys = webPush.generateVAPIDKeys(); // Fallback to generate keys in memory
+}
+
+// Configure web-push with VAPID details
 webPush.setVapidDetails(
-    'mailto:your-email@example.com', // Your email
-    process.env.VAPID_PUBLIC_KEY, // Public Key
-    process.env.VAPID_PRIVATE_KEY // Private Key
+    'mailto:your-email@example.com',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
 );
 
 // 🔹 Send VAPID Public Key to Frontend
 app.get('/vapidPublicKey', (req, res) => {
-    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+    res.json({ publicKey: vapidKeys.publicKey });
 });
 
-// 🔹 Register Student
+// 🔹 Student Registration
 app.post('/register', async (req, res) => {
     const { studentId, password } = req.body;
-
-    if (!studentId || !password) {
-        return res.status(400).json({ error: "All fields are required" });
-    }
+    if (!studentId || !password) return res.status(400).json({ error: "All fields are required" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     try {
-        // Ensure the studentId is unique
-        const existingStudent = await Student.findOne({ studentId });
-        if (existingStudent) {
-            return res.status(400).json({ error: "Student ID already exists" });
-        }
-
         const newStudent = new Student({ studentId, password: hashedPassword });
         await newStudent.save();
         res.status(201).json({ message: "Student registered successfully" });
     } catch (error) {
-        console.log("Error registering student:", error);
         res.status(500).json({ error: "Error registering student" });
     }
 });
 
 // 🔹 Student Login
 app.post('/login', async (req, res) => {
+    const { studentId, password } = req.body;
+
+    const student = await Student.findOne({ studentId });
+    if (!student) return res.status(401).json({ error: "Invalid credentials" });
+
+    const isMatch = await bcrypt.compare(password, student.password);
+    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+
+    const token = jwt.sign({ studentId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.json({ message: "Login successful", token });
+});
+
+// 🔹 Get All Students (for Admin panel)
+app.get('/students', async (req, res) => {
     try {
-        const { studentId, password } = req.body;
-
-        const student = await Student.findOne({ studentId });
-        if (!student) return res.status(401).json({ error: "Invalid credentials" });
-
-        const isMatch = await bcrypt.compare(password, student.password);
-        if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
-
-        const token = jwt.sign({ studentId }, process.env.JWT_SECRET, { expiresIn: '1h' });
-        res.json({ message: "Login successful", token });
+        const students = await Student.find({}, { password: 0 }); // Exclude password
+        res.json(students);
     } catch (error) {
-        console.log("Error during login:", error);
-        res.status(500).json({ error: "Error logging in student" });
+        res.status(500).json({ error: "Error fetching students" });
     }
 });
 
@@ -87,56 +106,52 @@ app.post('/subscribe', async (req, res) => {
     if (!studentId || !subscription) return res.status(400).json({ error: "Missing studentId or subscription" });
 
     try {
-        // Upsert the subscription for the student
+        // Save or update subscription in the database
         await Subscription.findOneAndUpdate({ studentId }, { subscription }, { upsert: true });
         res.status(200).json({ message: "Subscription successful" });
     } catch (error) {
-        console.error("Error saving subscription:", error);
         res.status(500).json({ error: "Error saving subscription" });
     }
 });
 
-// 🔹 Admin Send Notification
 app.post('/sendNotification', async (req, res) => {
     const { studentIds, title, message } = req.body;
 
+    // Validate input data
     if (!studentIds || !title || !message) {
         return res.status(400).json({ error: "All fields are required" });
     }
 
     try {
+        // Fetch subscriptions for the students
         const subscriptions = await Subscription.find({ studentId: { $in: studentIds } });
 
-        if (!subscriptions.length) {
-            return res.status(404).json({ error: "No subscriptions found" });
+        if (!subscriptions || subscriptions.length === 0) {
+            return res.status(404).json({ error: "No subscriptions found for the provided students" });
         }
 
         const payload = JSON.stringify({ title, message });
 
-        // Send notifications to all the subscribers
-        subscriptions.forEach(sub => {
-            webPush.sendNotification(sub.subscription, payload)
-                .catch(err => console.error("Push Error:", err));
-        });
+        // Send notifications to each subscription
+        for (const sub of subscriptions) {
+            try {
+                await webPush.sendNotification(sub.subscription, payload);
+                console.log(`Notification sent to student ID: ${sub.studentId}`);
+            } catch (err) {
+                // Log the error for each individual notification failure
+                console.error(`Push Error for student ID: ${sub.studentId}:`, err);
+                // You can also add individual error responses per subscription if needed, for example:
+                // return res.status(500).json({ error: `Error sending notification to student ID: ${sub.studentId}` });
+            }
+        }
 
-        res.status(200).json({ message: "Notifications sent successfully" });
+        res.status(200).json({ message: "Notifications sent successfully to all students" });
+
     } catch (error) {
+        // General error handling for the entire operation
         console.error("Error sending notifications:", error);
-        res.status(500).json({ error: "Error sending notifications" });
+        res.status(500).json({ error: "An error occurred while sending notifications" });
     }
 });
-
-// 🔹 Get All Students
-app.get('/students', async (req, res) => {
-    try {
-        // Fetch all students from the database
-        const students = await Student.find({});
-        res.status(200).json(students); // Send back the list of students
-    } catch (error) {
-        console.error('Error fetching students:', error);
-        res.status(500).json({ error: 'Error fetching students' });
-    }
-});
-
 // Start Server
 app.listen(port, () => console.log(`🚀 Server running on http://localhost:${port}`));
