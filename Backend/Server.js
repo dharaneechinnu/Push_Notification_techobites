@@ -1,11 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors');
 const bodyParser = require('body-parser');
+const webPush = require('web-push');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const webPush = require('web-push');
+const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
@@ -26,26 +26,10 @@ const Student = require('./Model/Student');
 const Subscription = require('./Model/subcription');
 
 // VAPID Keys for Web Push Notifications - Use persistent keys
-let vapidKeys;
-const vapidKeysPath = path.join(__dirname, 'vapid-keys.json');
-
-// Try to load existing VAPID keys
-try {
-    if (fs.existsSync(vapidKeysPath)) {
-        // Load existing keys
-        const vapidKeysData = fs.readFileSync(vapidKeysPath);
-        vapidKeys = JSON.parse(vapidKeysData);
-        console.log("✅ VAPID keys loaded from file",vapidKeys);
-    } else {
-        // Generate new keys and save them
-        vapidKeys = webPush.generateVAPIDKeys();
-        fs.writeFileSync(vapidKeysPath, JSON.stringify(vapidKeys));
-        console.log("✅ New VAPID keys generated and saved");
-    }
-} catch (error) {
-    console.error("❌ Error managing VAPID keys:", error);
-    vapidKeys = webPush.generateVAPIDKeys(); // Fallback to generate keys in memory
-}
+let vapidKeys = {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY
+};
 
 // Configure web-push with VAPID details
 webPush.setVapidDetails(
@@ -54,10 +38,21 @@ webPush.setVapidDetails(
     vapidKeys.privateKey
 );
 
-// 🔹 Send VAPID Public Key to Frontend
+// 🔹 Get VAPID Public Key
 app.get('/vapidPublicKey', (req, res) => {
     res.json({ publicKey: vapidKeys.publicKey });
 });
+
+// 🔹 Get All Students (for Admin panel)
+app.get('/students', async (req, res) => {
+    try {
+        const students = await Student.find({}, { password: 0 }); // Exclude password
+        res.json(students);
+    } catch (error) {
+        res.status(500).json({ error: "Error fetching students" });
+    }
+});
+
 
 // 🔹 Student Registration
 app.post('/register', async (req, res) => {
@@ -89,17 +84,7 @@ app.post('/login', async (req, res) => {
     res.json({ message: "Login successful", token });
 });
 
-// 🔹 Get All Students (for Admin panel)
-app.get('/students', async (req, res) => {
-    try {
-        const students = await Student.find({}, { password: 0 }); // Exclude password
-        res.json(students);
-    } catch (error) {
-        res.status(500).json({ error: "Error fetching students" });
-    }
-});
-
-// 🔹 Student Push Notification Subscription
+// 🔹 Push Notification Subscription
 app.post('/subscribe', async (req, res) => {
     const { studentId, subscription } = req.body;
 
@@ -114,6 +99,7 @@ app.post('/subscribe', async (req, res) => {
     }
 });
 
+// 🔹 Send Push Notification to Subscribed Students
 app.post('/sendNotification', async (req, res) => {
     const { studentIds, title, message } = req.body;
 
