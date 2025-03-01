@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
-const API_URL = 'http://localhost:3500';
+const API_URL = 'http://192.168.54.227:3500';
 
 function App() {
   const [view, setView] = useState('login'); // login, register, dashboard, admin
