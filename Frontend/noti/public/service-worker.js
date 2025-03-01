@@ -1,3 +1,5 @@
+import logo from '../src/Assets/logo.webp'
+
 self.addEventListener('push', (event) => {
   if (event.data) {
       const data = event.data.json();
@@ -5,8 +7,8 @@ self.addEventListener('push', (event) => {
 
       self.registration.showNotification(data.title, {
           body: data.message,
-          icon: '/notification.png',
-          badge: '/badge.png',
+          icon: {logo},
+          badge: {logo},
           vibrate: [200, 100, 200],
           data: { url: data.url } // Open URL when clicked
       });
