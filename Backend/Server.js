@@ -132,26 +132,40 @@ app.post('/sendNotification', async (req, res) => {
 
         const payload = JSON.stringify({ title, message });
 
+        let successfulNotifications = 0;
+        let failedNotifications = 0;
+
         // Send notifications to each subscription
         for (const sub of subscriptions) {
             try {
+                // Attempt to send push notification
                 await webPush.sendNotification(sub.subscription, payload);
+                successfulNotifications++;
                 console.log(`Notification sent to student ID: ${sub.studentId}`);
             } catch (err) {
-                // Log the error for each individual notification failure
+                // Log the error for failed notification
                 console.error(`Push Error for student ID: ${sub.studentId}:`, err);
-                // You can also add individual error responses per subscription if needed, for example:
-                // return res.status(500).json({ error: `Error sending notification to student ID: ${sub.studentId}` });
+                failedNotifications++;
+
+                // Optional: Clean up expired subscriptions
+                if (err instanceof webPush.WebPushError && err.statusCode === 410) {
+                    // Remove expired subscription from DB
+                    await Subscription.deleteOne({ studentId: sub.studentId });
+                    console.log(`Expired subscription removed for student ID: ${sub.studentId}`);
+                }
             }
         }
 
-        res.status(200).json({ message: "Notifications sent successfully to all students" });
+        // Respond with success/failure counts
+        res.status(200).json({
+            message: `Notifications sent: ${successfulNotifications}, Failed notifications: ${failedNotifications}`
+        });
 
     } catch (error) {
-        // General error handling for the entire operation
         console.error("Error sending notifications:", error);
         res.status(500).json({ error: "An error occurred while sending notifications" });
     }
 });
+
 // Start Server
 app.listen(port, () => console.log(`🚀 Server running on http://localhost:${port}`));
