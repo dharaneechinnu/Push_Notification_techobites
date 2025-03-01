@@ -11,6 +11,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [notification, setNotification] = useState(null);
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [swRegistration, setSwRegistration] = useState(null);
 
   // Admin state
   const [selectedStudents, setSelectedStudents] = useState([]);
@@ -25,6 +26,7 @@ function App() {
       // Check if already subscribed to notifications
       if ('serviceWorker' in navigator && 'PushManager' in window) {
         navigator.serviceWorker.ready.then(registration => {
+          setSwRegistration(registration);
           registration.pushManager.getSubscription().then(subscription => {
             setIsSubscribed(!!subscription);
           });
@@ -44,15 +46,57 @@ function App() {
       navigator.serviceWorker.register('/service-worker.js')
         .then(registration => {
           console.log('Service Worker registered:', registration);
+          setSwRegistration(registration);
+          
+          // Check if the user is logged in and pass studentId to the service worker
+          if (studentId) {
+            sendStudentIdToServiceWorker(studentId);
+          }
         })
         .catch(error => {
           console.error('Service Worker registration failed:', error);
         });
+      
+      // Set up message handler for communication with the service worker
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        console.log('Message from service worker:', event.data);
+        
+        if (event.data.type === 'GET_STUDENT_ID') {
+          console.log('Service worker requested studentId, sending:', studentId);
+          event.ports[0].postMessage({ studentId: studentId });
+        }
+      });
     }
 
     // Request notification permission only once
     requestNotificationPermission();
   }, []);
+
+  // Send studentId to service worker whenever it changes
+  useEffect(() => {
+    if (studentId && 'serviceWorker' in navigator) {
+      sendStudentIdToServiceWorker(studentId);
+    }
+  }, [studentId]);
+
+  const sendStudentIdToServiceWorker = (id) => {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      console.log('Sending studentId to service worker:', id);
+      
+      // Create a message channel to get a response
+      const messageChannel = new MessageChannel();
+      messageChannel.port1.onmessage = (event) => {
+        if (event.data.success) {
+          console.log('Service worker confirmed receipt of studentId');
+        }
+      };
+      
+      navigator.serviceWorker.controller.postMessage(
+        { type: 'STORE_STUDENT_ID', studentId: id },
+        [messageChannel.port2]
+      );
+    }
+  };
 
   const requestNotificationPermission = async () => {
     try {
@@ -76,33 +120,15 @@ function App() {
     }
   };
 
-  const registerServiceWorker = async () => {
-    if ('serviceWorker' in navigator) {
-      try {
-        const registration = await navigator.serviceWorker.register('/service-worker.js');
-        console.log('Service Worker registered successfully:', registration);
-        return registration;
-      } catch (error) {
-        console.error('Service worker registration failed with error:', error);
-        showNotification('Service Worker registration failed. Check the console for details.', 'error');
-        return null;
-      }
-    } else {
-      console.error('Service Worker not supported in this browser.');
-      showNotification('Service Worker is not supported in this browser.', 'error');
-      return null;
-    }
-  };
-  
   const subscribeUserToPush = async () => {
     try {
-      let registration;
+      // Use existing registration or wait for service worker to be ready
+      let registration = swRegistration;
       
-      // Check if service worker is already registered
-      if ('serviceWorker' in navigator) {
+      if (!registration && 'serviceWorker' in navigator) {
         registration = await navigator.serviceWorker.ready;
         console.log('Using existing service worker registration:', registration);
-      } else {
+      } else if (!registration) {
         showNotification('Service Worker is not supported in this browser.', 'error');
         return;
       }
@@ -135,6 +161,9 @@ function App() {
       console.log('Received public key:', vapidPublicKey);
       const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
   
+      // Ensure the student ID is passed to the service worker
+      sendStudentIdToServiceWorker(studentId);
+      
       // Subscribe the user
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -176,6 +205,12 @@ function App() {
       localStorage.setItem('token', token);
       setToken(token);
       setView('dashboard');
+      
+      // After successful login, store the studentId in the service worker
+      if ('serviceWorker' in navigator) {
+        sendStudentIdToServiceWorker(studentId);
+      }
+      
       showNotification('Login successful!', 'success');
     } catch (error) {
       showNotification(error.response?.data?.error || 'Login failed', 'error');
@@ -245,6 +280,7 @@ function App() {
     }
     return outputArray;
   }
+  
   const testNotification = () => {
     if (!('Notification' in window)) {
       alert('This browser does not support notifications');
@@ -282,9 +318,6 @@ function App() {
         </div>
       )}
 
-<button onClick={testNotification} className="btn-secondary">
-  Test Notification
-</button>
       <main className="app-main">
         {view === 'login' && (
           <div className="auth-container">
@@ -367,6 +400,10 @@ function App() {
               <p>Stay updated with the latest announcements and notifications from your institution.</p>
               <p>Make sure to enable notifications to receive timely updates about classes, exams, and events.</p>
             </div>
+            
+            <button onClick={testNotification} className="btn-secondary mt-4">
+              Test Notification
+            </button>
           </div>
         )}
 
