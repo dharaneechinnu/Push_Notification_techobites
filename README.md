@@ -1,9 +1,4 @@
 # Crescent - Student Notification System
-
-## Overview
-
-NotifyEdu is a comprehensive web application designed to streamline communication between educational institutions and students through push notifications. This platform enables administrators to send targeted notifications to specific students or groups, while students can easily subscribe to receive important updates about classes, exams, and campus events directly on their devices.
-
 ## Features
 
 ### For Students
@@ -42,16 +37,12 @@ NotifyEdu is a comprehensive web application designed to streamline communicatio
 
 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/notifyedu.git](https://github.com/dharaneechinnu/Push_Notification_techobites
+git clone https://github.com/dharaneechinnu/Push_Notification_techobites.git
 cd Push_Notification_techobites
 ```
 
-2. Install dependencies
-```bash
-npm install
-```
 
-3. Set up environment variables
+3. Set up environment variables in backend folder
 ```bash
 # Create a .env file and add the following
 API_URL=http://localhost:3500
@@ -59,60 +50,21 @@ VAPID_PUBLIC_KEY=your_vapid_public_key
 VAPID_PRIVATE_KEY=your_vapid_private_key
 ```
 
-4. Start the development server
+4. Start the development server in backend
 ```bash
-npm start
+cd backend
+npm install
+npm run dev
 ```
-
-## Service Worker
-
-The application uses a service worker to enable push notifications. The service worker:
-- Registers with the browser
-- Handles push subscription management
-- Processes incoming push messages
-- Displays notifications to users
-- Manages notification interactions
-
-## Deployment
-
-1. Build the production version
-```bash
-npm run build
-```
-
-2. Deploy to your hosting service
-```bash
-# Example for Netlify
-netlify deploy --prod
-```
-
-## Security Considerations
-
-- HTTPS is required for push notifications to work
-- Student credentials are securely stored with password hashing
-- VAPID keys are used to authenticate the push service
-- Client-side validation prevents common input attacks
-
-## Browser Compatibility
-
-- Chrome (desktop and mobile)
-- Firefox (desktop and mobile)
-- Edge (desktop)
-- Safari (push notification support limited)
-
-## Future Enhancements
-
-- Notification categorization system
-- Scheduled notifications
-- Read receipts
-- Student groups and departments
-- Rich media notifications
-- Two-factor authentication
-
+5. go to frontend Folder
+   ```bash
+   cd frontend/noti
+   npm install
+   ```
+6. Start frontend server
+   ```bash
+   npm start
+   ```
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.
-
-## Contact
-
-For support or inquiries, please contact support@notifyedu.com.
